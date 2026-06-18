@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Node / Next.js (frontend, added in Phase 1 frontend step)
+node_modules/
+.next/
+out/
+dist/
+
+# Misc
+.DS_Store
+*.log
