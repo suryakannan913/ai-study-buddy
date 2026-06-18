@@ -1,6 +1,6 @@
 # AI Study Buddy
 
-A free, portfolio-ready AI tutor. Upload your study materials, ask questions, and
+A free, intelligent AI tutor. Upload your study materials, ask questions, and
 get patient, personalized explanations grounded in your own notes.
 
 **Stack:** Next.js (frontend) · FastAPI (backend) · Groq / Llama 3 (LLM) ·
