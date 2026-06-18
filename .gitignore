@@ -9,12 +9,14 @@ venv/
 .env
 .env.*
 !.env.example
+!.env.local.example
 
-# Node / Next.js (frontend, added in Phase 1 frontend step)
+# Node / Next.js
 node_modules/
 .next/
 out/
 dist/
+next-env.d.ts
 
 # Misc
 .DS_Store
