@@ -1,10 +1,14 @@
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, PointStruct, VectorParams
 
+from config import settings
+
 
 class QdrantService:
-    def __init__(self, url: str = "http://localhost:6333"):
-        self.client = QdrantClient(url=url)
+    def __init__(self, url: str | None = None, api_key: str | None = None):
+        url = url or settings.qdrant_url
+        api_key = api_key or settings.qdrant_api_key
+        self.client = QdrantClient(url=url, api_key=api_key if api_key else None)
 
     def create_collection(self, collection_name: str, vector_size: int = 384):
         """Create a new collection for embeddings (384-dim for BAAI/bge-small-en-v1.5)."""
