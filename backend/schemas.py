@@ -29,3 +29,17 @@ class ConversationOut(BaseModel):
     id: int
     title: str
     created_at: datetime
+
+
+class UploadResponse(BaseModel):
+    material_id: int
+    filename: str
+    message: str
+
+
+class StudyMaterialOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    filename: str
+    created_at: datetime

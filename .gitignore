@@ -21,3 +21,6 @@ next-env.d.ts
 # Misc
 .DS_Store
 *.log
+
+# Local-only handoff/context notes (contains account setup — keep out of public repo)
+HANDOFF.md

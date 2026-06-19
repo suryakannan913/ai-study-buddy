@@ -20,6 +20,9 @@ class User(Base):
     conversations: Mapped[list["Conversation"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    study_materials: Mapped[list["StudyMaterial"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class Conversation(Base):
@@ -51,3 +54,21 @@ class Message(Base):
     timestamp: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     conversation: Mapped["Conversation"] = relationship(back_populates="messages")
+
+
+class StudyMaterial(Base):
+    """Uploaded PDF materials for RAG retrieval."""
+
+    __tablename__ = "study_materials"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    filename: Mapped[str] = mapped_column(String(500))
+    qdrant_collection_name: Mapped[str] = mapped_column(
+        String(255), unique=True
+    )  # e.g., "material_1"
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    user: Mapped["User"] = relationship(
+        back_populates="study_materials", cascade="all, delete-orphan"
+    )

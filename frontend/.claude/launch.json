@@ -1,0 +1,6 @@
+{
+  "name": "AI Study Buddy Frontend",
+  "command": "npm run dev",
+  "autoPort": true,
+  "ready": "ready - started server on"
+}
