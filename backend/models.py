@@ -21,7 +21,7 @@ class User(Base):
         back_populates="user", cascade="all, delete-orphan"
     )
     study_materials: Mapped[list["StudyMaterial"]] = relationship(
-        back_populates="user", cascade="all, delete-orphan"
+        back_populates="user", cascade="all, delete-orphan", foreign_keys="StudyMaterial.user_id"
     )
 
 
@@ -69,6 +69,4 @@ class StudyMaterial(Base):
     )  # e.g., "material_1"
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
-    user: Mapped["User"] = relationship(
-        back_populates="study_materials", cascade="all, delete-orphan"
-    )
+    user: Mapped["User"] = relationship(back_populates="study_materials")
