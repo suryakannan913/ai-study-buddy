@@ -21,7 +21,7 @@ class User(Base):
         back_populates="user", cascade="all, delete-orphan"
     )
     study_materials: Mapped[list["StudyMaterial"]] = relationship(
-        back_populates="user", cascade="all, delete-orphan", foreign_keys="StudyMaterial.user_id"
+        back_populates="user", cascade="all, delete-orphan"
     )
 
 
