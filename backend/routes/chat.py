@@ -1,5 +1,6 @@
 import os
 import tempfile
+import time
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -162,8 +163,9 @@ async def upload_material(
                     status_code=502, detail=f"Embedding service error: {e}"
                 ) from e
 
-            # Create Qdrant collection
-            collection_name = f"material_{user.id}_{file.filename.replace('.pdf', '')}"[:63]
+            # Create Qdrant collection with unique name (user_id + filename + timestamp)
+            timestamp = int(time.time() * 1000)  # milliseconds for uniqueness
+            collection_name = f"m{user.id}_{int(timestamp)}"
             try:
                 qdrant = get_qdrant_service()
                 qdrant.create_collection(collection_name)
