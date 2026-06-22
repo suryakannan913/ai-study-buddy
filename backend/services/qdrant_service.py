@@ -8,7 +8,12 @@ class QdrantService:
     def __init__(self, url: str | None = None, api_key: str | None = None):
         url = url or settings.qdrant_url
         api_key = api_key or settings.qdrant_api_key
-        self.client = QdrantClient(url=url, api_key=api_key if api_key else None)
+
+        # Use in-memory Qdrant for local development if URL is localhost and no API key
+        if url == "http://localhost:6333" and not api_key:
+            self.client = QdrantClient(":memory:")
+        else:
+            self.client = QdrantClient(url=url, api_key=api_key if api_key else None)
 
     def create_collection(self, collection_name: str, vector_size: int = 384):
         """Create a new collection for embeddings (384-dim for BAAI/bge-small-en-v1.5)."""
