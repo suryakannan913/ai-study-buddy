@@ -1,14 +1,26 @@
+import json
 import os
 import tempfile
 import time
+from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import Conversation, Message, StudyMaterial, User, Topic, TopicMastery
+from models import (
+    Conversation,
+    Message,
+    StudyMaterial,
+    User,
+    Topic,
+    TopicMastery,
+    Quiz,
+    Question,
+    QuestionResponse,
+)
 from schemas import (
     ChatRequest,
     ChatResponse,
@@ -22,6 +34,7 @@ from services.llm_service import generate_reply
 from services.pdf_service import chunk_text, extract_text_from_pdf
 from services.qdrant_service import QdrantService
 from services.topic_service import extract_topics_from_text
+from services.quiz_service import generate_questions_from_context, grade_answer
 
 router = APIRouter(tags=["chat"])
 
@@ -320,3 +333,254 @@ def list_topics(db: Session = Depends(get_db)):
         )
 
     return result
+
+
+@router.post("/quizzes/generate")
+def generate_quiz(
+    topic_id: int,
+    num_questions: int = 5,
+    difficulty: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """Generate a quiz on a specific topic."""
+    user = get_current_user(db)
+
+    # Validate topic belongs to user
+    topic = db.get(Topic, topic_id)
+    if topic is None:
+        raise HTTPException(status_code=404, detail="Topic not found.")
+
+    # Auto-select difficulty if not provided
+    if difficulty is None:
+        mastery = db.scalar(
+            select(TopicMastery)
+            .where(TopicMastery.user_id == user.id)
+            .where(TopicMastery.topic_id == topic_id)
+        )
+        if mastery:
+            if mastery.mastery_level >= 0.85:
+                difficulty = "hard"
+            elif mastery.mastery_level >= 0.70:
+                difficulty = "medium"
+            else:
+                difficulty = "easy"
+        else:
+            difficulty = "easy"
+
+    # Retrieve context from materials related to this topic
+    contexts = []
+    for material in topic.materials:
+        try:
+            query_embedding = get_embedding_service().embed_text(topic.name)
+            qdrant = get_qdrant_service()
+            results = qdrant.search(
+                collection_name=material.qdrant_collection_name,
+                query_vector=query_embedding,
+                top_k=5,
+            )
+            contexts.extend([r["text"] for r in results])
+        except Exception:
+            pass
+
+    context_text = "\n".join(contexts[:3]) if contexts else ""
+
+    # Generate questions
+    try:
+        question_dicts = generate_questions_from_context(
+            topic.name, context_text, num_questions, difficulty
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Quiz generation error: {e}") from e
+
+    # Save quiz and questions to DB
+    quiz = Quiz(
+        user_id=user.id,
+        topic_id=topic_id,
+        num_questions=num_questions,
+        difficulty=difficulty,
+    )
+    db.add(quiz)
+    db.flush()
+
+    for q_dict in question_dicts:
+        question = Question(
+            quiz_id=quiz.id,
+            type=q_dict.get("type", "multiple_choice"),
+            prompt=q_dict.get("prompt", ""),
+            correct_answer=q_dict.get("correct_answer", ""),
+            options=(
+                json.dumps(q_dict.get("options", []))
+                if q_dict.get("options")
+                else None
+            ),
+        )
+        db.add(question)
+
+    db.commit()
+    db.refresh(quiz)
+
+    return {
+        "quiz_id": quiz.id,
+        "topic": topic.name,
+        "num_questions": num_questions,
+        "difficulty": difficulty,
+        "questions": [
+            {
+                "id": q.id,
+                "type": q.type,
+                "prompt": q.prompt,
+                "options": json.loads(q.options) if q.options else None,
+            }
+            for q in quiz.questions
+        ],
+    }
+
+
+@router.get("/quizzes/{quiz_id}")
+def get_quiz(quiz_id: int, db: Session = Depends(get_db)):
+    """Get a quiz with its questions."""
+    user = get_current_user(db)
+    quiz = db.get(Quiz, quiz_id)
+
+    if quiz is None or quiz.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Quiz not found.")
+
+    return {
+        "quiz_id": quiz.id,
+        "topic": quiz.topic.name,
+        "difficulty": quiz.difficulty,
+        "completed": quiz.completed_at is not None,
+        "questions": [
+            {
+                "id": q.id,
+                "type": q.type,
+                "prompt": q.prompt,
+                "options": json.loads(q.options) if q.options else None,
+            }
+            for q in quiz.questions
+        ],
+    }
+
+
+@router.post("/quizzes/{quiz_id}/submit")
+def submit_answer(
+    quiz_id: int,
+    question_id: int,
+    user_response: str,
+    confidence: float = 0.5,
+    db: Session = Depends(get_db),
+):
+    """Submit an answer to a quiz question and grade it."""
+    user = get_current_user(db)
+
+    quiz = db.get(Quiz, quiz_id)
+    if quiz is None or quiz.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Quiz not found.")
+
+    question = db.get(Question, question_id)
+    if question is None or question.quiz_id != quiz_id:
+        raise HTTPException(status_code=404, detail="Question not found.")
+
+    # Grade the answer
+    is_correct, grading_notes = grade_answer(
+        question.type, user_response, question.correct_answer
+    )
+
+    # Record the response
+    response = QuestionResponse(
+        question_id=question_id,
+        user_response=user_response,
+        is_correct=is_correct,
+        confidence=min(1.0, max(0.0, confidence)),
+        grading_notes=grading_notes,
+    )
+    db.add(response)
+    db.flush()
+
+    # Update topic mastery
+    mastery = db.scalar(
+        select(TopicMastery)
+        .where(TopicMastery.user_id == user.id)
+        .where(TopicMastery.topic_id == quiz.topic_id)
+    )
+
+    if not mastery:
+        mastery = TopicMastery(
+            user_id=user.id,
+            topic_id=quiz.topic_id,
+            num_attempts=0,
+            num_correct=0,
+        )
+        db.add(mastery)
+        db.flush()
+
+    mastery.num_attempts += 1
+    if is_correct:
+        mastery.num_correct += 1
+
+    # Calculate mastery level from last 10 attempts
+    recent_responses = db.scalars(
+        select(QuestionResponse)
+        .join(Question)
+        .join(Quiz)
+        .where(Quiz.user_id == user.id)
+        .where(Quiz.topic_id == quiz.topic_id)
+        .order_by(QuestionResponse.answered_at.desc())
+        .limit(10)
+    )
+
+    recent_list = list(recent_responses)
+    if recent_list:
+        correct_count = sum(1 for r in recent_list if r.is_correct)
+        mastery.mastery_level = correct_count / len(recent_list)
+    else:
+        mastery.mastery_level = 1.0 if is_correct else 0.0
+
+    mastery.last_practiced = datetime.utcnow()
+    db.commit()
+
+    # Check if quiz is complete (all questions answered)
+    answered_count = db.scalar(
+        select(func.count(QuestionResponse.id))
+        .select_from(QuestionResponse)
+        .join(Question)
+        .where(Question.quiz_id == quiz_id)
+    )
+
+    quiz_complete = answered_count == len(quiz.questions)
+    if quiz_complete:
+        quiz.completed_at = datetime.utcnow()
+        db.commit()
+
+    return {
+        "is_correct": is_correct,
+        "correct_answer": question.correct_answer,
+        "explanation": grading_notes or "",
+        "mastery_level": round(mastery.mastery_level, 2),
+        "quiz_complete": quiz_complete,
+    }
+
+
+@router.get("/quizzes")
+def list_quizzes(db: Session = Depends(get_db)):
+    """List user's recent quizzes."""
+    user = get_current_user(db)
+
+    quizzes = db.scalars(
+        select(Quiz)
+        .where(Quiz.user_id == user.id)
+        .order_by(Quiz.created_at.desc())
+        .limit(20)
+    )
+
+    return [
+        {
+            "quiz_id": q.id,
+            "topic": q.topic.name,
+            "difficulty": q.difficulty,
+            "num_questions": q.num_questions,
+            "completed": q.completed_at is not None,
+            "created_at": q.created_at.isoformat(),
+        }
+        for q in quizzes
+    ]

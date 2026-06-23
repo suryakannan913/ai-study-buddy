@@ -147,3 +147,58 @@ class TopicMastery(Base):
 
     user: Mapped["User"] = relationship()
     topic: Mapped["Topic"] = relationship(back_populates="mastery_records")
+
+
+class Quiz(Base):
+    """A quiz session for a specific topic."""
+
+    __tablename__ = "quizzes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    topic_id: Mapped[int] = mapped_column(ForeignKey("topics.id"))
+    num_questions: Mapped[int] = mapped_column(default=5)
+    difficulty: Mapped[str] = mapped_column(String(20))  # "easy", "medium", "hard"
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    user: Mapped["User"] = relationship()
+    topic: Mapped["Topic"] = relationship()
+    questions: Mapped[list["Question"]] = relationship(
+        back_populates="quiz", cascade="all, delete-orphan"
+    )
+
+
+class Question(Base):
+    """A single quiz question."""
+
+    __tablename__ = "questions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    quiz_id: Mapped[int] = mapped_column(ForeignKey("quizzes.id"))
+    type: Mapped[str] = mapped_column(String(50))  # "multiple_choice", "short_answer", "true_false"
+    prompt: Mapped[str] = mapped_column(Text)
+    correct_answer: Mapped[str] = mapped_column(Text)
+    options: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON for MC
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    quiz: Mapped["Quiz"] = relationship(back_populates="questions")
+    responses: Mapped[list["QuestionResponse"]] = relationship(
+        back_populates="question", cascade="all, delete-orphan"
+    )
+
+
+class QuestionResponse(Base):
+    """A student's response to a quiz question."""
+
+    __tablename__ = "question_responses"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    question_id: Mapped[int] = mapped_column(ForeignKey("questions.id"))
+    user_response: Mapped[str] = mapped_column(Text)
+    is_correct: Mapped[bool] = mapped_column(default=False)
+    confidence: Mapped[float] = mapped_column(Float, default=0.5)  # 0.0-1.0
+    answered_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    grading_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    question: Mapped["Question"] = relationship(back_populates="responses")
