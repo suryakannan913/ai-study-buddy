@@ -92,16 +92,47 @@ def _try_ollama(messages: list[dict[str, str]]) -> Optional[str]:
 def generate_reply(
     history: list[dict[str, str]],
     context: Optional[str] = None,
+    explanation_style: str = "standard",
 ) -> str:
     """Generate a tutoring reply.
 
     `history` is a list of {"role": "user"|"assistant", "content": str} dicts
     for the current conversation (oldest first). `context` is optional retrieved
-    study-material text (Phase 2 RAG).
+    study-material text (Phase 2 RAG). `explanation_style` controls depth:
+    "simple" (beginner), "standard" (intermediate), "deep" (advanced).
 
     Tries: Groq API → Ollama local → intelligent mock fallback
     """
-    system = TUTOR_SYSTEM_PROMPT
+    # Get adaptive system prompt based on explanation style
+    style_prompts = {
+        "simple": """You are a patient, beginner-friendly tutor. Your goals:
+1. Explain concepts using everyday language and simple examples.
+2. Break complex ideas into tiny, digestible steps.
+3. Use analogies to familiar things (sports, cooking, movies, etc.).
+4. Avoid jargon—if you must use a term, define it immediately.
+5. After explaining, ask ONE simple follow-up question to check understanding.
+
+Keep explanations short (2-3 sentences max per concept). Use lots of examples.
+Your student is learning for the first time or struggling with this topic.""",
+
+        "standard": TUTOR_SYSTEM_PROMPT,
+
+        "deep": """You are an expert tutor for advanced learners. Your goals:
+1. Dive deep into concepts: discuss nuances, edge cases, and interconnections.
+2. Assume solid foundational knowledge—skip basic definitions unless asked.
+3. Challenge misconceptions and explore counterintuitive aspects.
+4. Connect this topic to related fields and broader contexts.
+5. Ask probing questions that push critical thinking further.
+
+When the student asks:
+- Provide sophisticated, layered explanations.
+- Discuss limitations, assumptions, and open questions in the field.
+- Encourage them to think like an expert in this domain.
+- Ask questions that lead them to deeper insight, not just recitation.""",
+    }
+
+    system = style_prompts.get(explanation_style, TUTOR_SYSTEM_PROMPT)
+
     if context:
         system = CONTEXT_TEMPLATE.format(context=context) + system
 

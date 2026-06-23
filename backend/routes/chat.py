@@ -33,8 +33,9 @@ from services.embedding_service import EmbeddingService
 from services.llm_service import generate_reply
 from services.pdf_service import chunk_text, extract_text_from_pdf
 from services.qdrant_service import QdrantService
-from services.topic_service import extract_topics_from_text
+from services.topic_service import extract_topics_from_text, infer_topics_from_question
 from services.quiz_service import generate_questions_from_context, grade_answer
+from services.mastery_service import calculate_adaptive_difficulty
 
 router = APIRouter(tags=["chat"])
 
@@ -127,8 +128,32 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)) -> ChatResponse:
 
     context = _retrieve_context(user.id, req.message, db)
 
+    # Infer topics from question and get adaptive difficulty
+    explanation_style = "standard"  # Default
+    available_topics = db.scalars(
+        select(Topic).where((Topic.user_id == user.id) | (Topic.user_id.is_(None)))
+    )
+    topic_names = [t.name for t in available_topics]
+
+    if topic_names:
+        inferred_topics = infer_topics_from_question(req.message, topic_names)
+        if inferred_topics:
+            # Get the top topic and calculate adaptive difficulty
+            top_topic_name, _ = inferred_topics[0]
+            topic = db.scalar(
+                select(Topic).where(Topic.name == top_topic_name)
+            )
+            if topic:
+                _, explanation_style = calculate_adaptive_difficulty(
+                    user.id, topic.id, db
+                )
+
     try:
-        reply_text = generate_reply(history, context=context if context else None)
+        reply_text = generate_reply(
+            history,
+            context=context if context else None,
+            explanation_style=explanation_style,
+        )
     except Exception as exc:  # surface a clean error to the client
         raise HTTPException(status_code=502, detail=f"LLM error: {exc}") from exc
 
@@ -352,20 +377,7 @@ def generate_quiz(
 
     # Auto-select difficulty if not provided
     if difficulty is None:
-        mastery = db.scalar(
-            select(TopicMastery)
-            .where(TopicMastery.user_id == user.id)
-            .where(TopicMastery.topic_id == topic_id)
-        )
-        if mastery:
-            if mastery.mastery_level >= 0.85:
-                difficulty = "hard"
-            elif mastery.mastery_level >= 0.70:
-                difficulty = "medium"
-            else:
-                difficulty = "easy"
-        else:
-            difficulty = "easy"
+        difficulty, _ = calculate_adaptive_difficulty(user.id, topic_id, db)
 
     # Retrieve context from materials related to this topic
     contexts = []
