@@ -1,12 +1,14 @@
 import os
 import tempfile
 import time
+from typing import Optional
+
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import Conversation, Message, StudyMaterial, User
+from models import Conversation, Message, StudyMaterial, User, Topic, TopicMastery
 from schemas import (
     ChatRequest,
     ChatResponse,
@@ -19,6 +21,7 @@ from services.embedding_service import EmbeddingService
 from services.llm_service import generate_reply
 from services.pdf_service import chunk_text, extract_text_from_pdf
 from services.qdrant_service import QdrantService
+from services.topic_service import extract_topics_from_text
 
 router = APIRouter(tags=["chat"])
 
@@ -26,8 +29,8 @@ router = APIRouter(tags=["chat"])
 DEV_USER_EMAIL = "dev@local"
 
 # Lazy-loaded services
-_embedding_service: EmbeddingService | None = None
-_qdrant_service: QdrantService | None = None
+_embedding_service: Optional[EmbeddingService] = None
+_qdrant_service: Optional[QdrantService] = None
 
 
 def get_embedding_service() -> EmbeddingService:
@@ -185,6 +188,9 @@ async def upload_material(
                     status_code=502, detail=f"Vector DB error: {e}"
                 ) from e
 
+            # Extract topics from PDF
+            extracted_topics = extract_topics_from_text(text)
+
             # Save metadata to DB
             material = StudyMaterial(
                 user_id=user.id,
@@ -192,13 +198,39 @@ async def upload_material(
                 qdrant_collection_name=collection_name,
             )
             db.add(material)
+            db.flush()
+
+            # Link topics to material
+            for topic_name in extracted_topics:
+                # Check if topic exists (system-wide or user-specific)
+                existing_topic = db.scalar(
+                    select(Topic).where(Topic.name == topic_name).where(
+                        (Topic.user_id == user.id) | (Topic.user_id.is_(None))
+                    )
+                )
+
+                if existing_topic:
+                    material.topics.append(existing_topic)
+                else:
+                    # Create new user-specific topic
+                    new_topic = Topic(name=topic_name, user_id=user.id)
+                    db.add(new_topic)
+                    db.flush()
+                    material.topics.append(new_topic)
+
             db.commit()
             db.refresh(material)
+
+            topic_summary = (
+                f" Extracted topics: {', '.join(extracted_topics[:5])}."
+                if extracted_topics
+                else ""
+            )
 
             return UploadResponse(
                 material_id=material.id,
                 filename=file.filename,
-                message=f"Uploaded and indexed {len(chunks)} chunks.",
+                message=f"Uploaded and indexed {len(chunks)} chunks.{topic_summary}",
             )
         finally:
             os.unlink(tmp.name)
@@ -258,3 +290,33 @@ def get_conversation(
     if conversation is None or conversation.user_id != user.id:
         raise HTTPException(status_code=404, detail="Conversation not found.")
     return list(conversation.messages)
+
+
+@router.get("/topics")
+def list_topics(db: Session = Depends(get_db)):
+    """List all topics the user has studied."""
+    user = get_current_user(db)
+
+    topics = db.scalars(
+        select(Topic)
+        .where((Topic.user_id == user.id) | (Topic.user_id.is_(None)))
+        .order_by(Topic.name)
+    )
+
+    result = []
+    for topic in topics:
+        mastery = db.scalar(
+            select(TopicMastery)
+            .where(TopicMastery.user_id == user.id)
+            .where(TopicMastery.topic_id == topic.id)
+        )
+        result.append(
+            {
+                "id": topic.id,
+                "name": topic.name,
+                "mastery_level": mastery.mastery_level if mastery else 0.0,
+                "num_attempts": mastery.num_attempts if mastery else 0,
+            }
+        )
+
+    return result

@@ -1,11 +1,12 @@
 from datetime import datetime
+from typing import Optional
 
 from pydantic import BaseModel, ConfigDict
 
 
 class ChatRequest(BaseModel):
     message: str
-    conversation_id: int | None = None
+    conversation_id: Optional[int] = None
 
 
 class ChatResponse(BaseModel):

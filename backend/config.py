@@ -7,6 +7,8 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg2://postgres:postgres@localhost:5432/studybuddy"
     groq_api_key: str = ""
     groq_model: str = "llama-3.3-70b-versatile"
+    ollama_url: str = "http://localhost:11434"
+    ollama_model: str = "mistral"
     frontend_origins: str = "http://localhost:3000"
     qdrant_url: str = "http://localhost:6333"
     qdrant_api_key: str = ""

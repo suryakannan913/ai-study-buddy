@@ -1,3 +1,4 @@
+from typing import Optional
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, PointStruct, VectorParams
 
@@ -5,7 +6,7 @@ from config import settings
 
 
 class QdrantService:
-    def __init__(self, url: str | None = None, api_key: str | None = None):
+    def __init__(self, url: Optional[str] = None, api_key: Optional[str] = None):
         url = url or settings.qdrant_url
         api_key = api_key or settings.qdrant_api_key
 
