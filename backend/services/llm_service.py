@@ -84,6 +84,30 @@ def _call_together_ai(messages: list[dict], model: str = "meta-llama/Llama-2-7b-
     return data["choices"][0]["message"]["content"]
 
 
+def _call_mistral(messages: list[dict], model: str = "mistral-small-latest") -> str:
+    """Call Mistral API (OpenAI-compatible)."""
+    api_key = os.getenv("MISTRAL_API_KEY")
+    if not api_key:
+        raise RuntimeError("MISTRAL_API_KEY not set")
+
+    url = "https://api.mistral.ai/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": model,
+        "messages": messages,
+        "temperature": 0.7,
+        "max_tokens": 1024,
+    }
+
+    response = httpx.post(url, json=payload, headers=headers, timeout=30.0)
+    response.raise_for_status()
+    data = response.json()
+    return data["choices"][0]["message"]["content"]
+
+
 def generate_reply(
     history: list[dict[str, str]],
     context: str | None = None,
@@ -101,21 +125,28 @@ def generate_reply(
     messages = [{"role": "system", "content": system}, *history]
 
     try:
-        # Try Together AI first
+        # Try Mistral first
+        if os.getenv("MISTRAL_API_KEY"):
+            return _call_mistral(messages)
+
+        # Try Together AI
         if os.getenv("TOGETHER_API_KEY"):
             return _call_together_ai(messages)
 
         # Fall back to Groq
-        from groq import Groq
-        client = Groq(api_key=settings.groq_api_key)
-        completion = client.chat.completions.create(
-            model=settings.groq_model,
-            messages=messages,
-            temperature=0.7,
-            max_tokens=1024,
-        )
-        return completion.choices[0].message.content or ""
+        if settings.groq_api_key:
+            from groq import Groq
+            client = Groq(api_key=settings.groq_api_key)
+            completion = client.chat.completions.create(
+                model=settings.groq_model,
+                messages=messages,
+                temperature=0.7,
+                max_tokens=1024,
+            )
+            return completion.choices[0].message.content or ""
     except Exception:
-        # Fallback to mock responses for local dev without API access
-        user_message = history[-1]["content"] if history else ""
-        return _generate_mock_reply(user_message, context)
+        pass
+
+    # Fallback to mock responses for local dev without API access
+    user_message = history[-1]["content"] if history else ""
+    return _generate_mock_reply(user_message, context)
