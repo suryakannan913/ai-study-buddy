@@ -11,7 +11,7 @@ def extract_text_from_pdf(file_path: str) -> str:
     return text
 
 
-def chunk_text(text: str, chunk_size: int = 500, overlap: int = 100) -> list[str]:
+def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> list[str]:
     """Split text into overlapping chunks by token count (approximate).
     Assumes ~1 word per 1.3 tokens, ~5 chars per word."""
     words = text.split()
