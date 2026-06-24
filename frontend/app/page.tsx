@@ -4,6 +4,7 @@ import { useState } from "react";
 import ChatWindow from "@/components/ChatWindow";
 import UploadZone from "@/components/UploadZone";
 import MaterialsList from "@/components/MaterialsList";
+import TopicsList from "@/components/TopicsList";
 
 export default function Home() {
   const [materialsRefresh, setMaterialsRefresh] = useState(0);
@@ -63,6 +64,11 @@ export default function Home() {
             <div className="border-t border-border/50 pt-6">
               <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Your Files</h2>
               <MaterialsList refreshTrigger={materialsRefresh} />
+            </div>
+
+            <div className="border-t border-border/50 pt-6">
+              <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Topics & Quizzes</h2>
+              <TopicsList />
             </div>
           </div>
         </aside>
