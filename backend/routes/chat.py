@@ -36,6 +36,7 @@ from services.qdrant_service import QdrantService
 from services.topic_service import extract_topics_from_text, infer_topics_from_question
 from services.quiz_service import generate_questions_from_context, grade_answer
 from services.mastery_service import calculate_adaptive_difficulty
+from services.retrieval_service import RetrievalService
 
 router = APIRouter(tags=["chat"])
 
@@ -45,6 +46,7 @@ DEV_USER_EMAIL = "dev@local"
 # Lazy-loaded services
 _embedding_service: Optional[EmbeddingService] = None
 _qdrant_service: Optional[QdrantService] = None
+_retrieval_service: Optional[RetrievalService] = None
 
 
 def get_embedding_service() -> EmbeddingService:
@@ -61,6 +63,13 @@ def get_qdrant_service() -> QdrantService:
     return _qdrant_service
 
 
+def get_retrieval_service() -> RetrievalService:
+    global _retrieval_service
+    if _retrieval_service is None:
+        _retrieval_service = RetrievalService()
+    return _retrieval_service
+
+
 def get_current_user(db: Session) -> User:
     user = db.scalar(select(User).where(User.email == DEV_USER_EMAIL))
     if user is None:
@@ -72,33 +81,20 @@ def get_current_user(db: Session) -> User:
 
 
 def _retrieve_context(user_id: int, query: str, db: Session) -> str:
-    """Retrieve relevant context from user's study materials."""
-    materials = db.scalars(
-        select(StudyMaterial).where(StudyMaterial.user_id == user_id)
+    """Retrieve relevant context using hybrid search (BM25 + semantic)."""
+    materials = list(
+        db.scalars(select(StudyMaterial).where(StudyMaterial.user_id == user_id))
     )
     if not materials:
         return ""
 
     try:
-        query_embedding = get_embedding_service().embed_text(query)
-        qdrant = get_qdrant_service()
-        contexts = []
-
-        for material in materials:
-            try:
-                results = qdrant.search(
-                    collection_name=material.qdrant_collection_name,
-                    query_vector=query_embedding,
-                    top_k=3,
-                )
-                contexts.extend([r["text"] for r in results])
-            except Exception:
-                # Collection may not exist or be inaccessible
-                pass
-
-        return "\n".join(contexts[:5])  # top 5 results
-    except Exception:
-        # If embedding service fails (e.g., model download), return empty context
+        # Use hybrid retrieval service
+        retriever = get_retrieval_service()
+        context = retriever.retrieve_context(query, materials, top_k=5)
+        return context
+    except Exception as e:
+        # If retrieval fails, return empty context
         return ""
 
 
