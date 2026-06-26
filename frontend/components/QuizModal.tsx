@@ -111,9 +111,22 @@ export default function QuizModal({ topic, isOpen, onClose }: QuizModalProps) {
     );
   }
 
-  if (!quiz) return null;
+  if (!quiz || !quiz.questions || quiz.questions.length === 0) {
+    return (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <div className="bg-slate-800 p-6 rounded-lg text-white">
+          <p>Error loading quiz. Please try again.</p>
+          <button onClick={onClose} className="mt-4 px-4 py-2 bg-blue-600 rounded">
+            Close
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const question = quiz.questions[currentQuestion];
+  if (!question) return null;
+
   const isAnswered = result !== null;
 
   return (
