@@ -48,13 +48,24 @@ export default function QuizModal({ topic, isOpen, onClose }: QuizModalProps) {
         const response = await fetch(
           `${apiUrl}/quizzes/generate?topic_id=${topic.id}&num_questions=3`
         );
+
+        if (!response.ok) {
+          throw new Error(`Failed to generate quiz: ${response.statusText}`);
+        }
+
         const data = await response.json();
+
+        if (!data || !data.questions) {
+          throw new Error("Invalid quiz data received");
+        }
+
         setQuiz(data);
         setCurrentQuestion(0);
         setAnswers({});
         setResult(null);
       } catch (error) {
         console.error("Failed to generate quiz:", error);
+        // Quiz will show error state due to null check
       } finally {
         setLoading(false);
       }
